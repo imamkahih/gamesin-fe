@@ -6,3 +6,6 @@ e2e/shots
 
 # Graphify local output
 graphify-out/
+
+# Log runtime (jangan di-commit)
+*.log
