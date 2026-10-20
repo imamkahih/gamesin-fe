@@ -1,0 +1,25 @@
+{
+  "name": "ladang-kita-fe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sync-engine": "node scripts/sync-engine.mjs",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test:e2e": "node e2e/play.mjs e2e/shots && node e2e/gender.mjs && node e2e/wardrobe.mjs",
+    "test:e2e:mobile": "node e2e/play.mjs e2e/shots --mobile"
+  },
+  "dependencies": {
+    "phaser": "^3.87.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "playwright-core": "^1.49.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-pwa": "^0.21.1"
+  }
+}
