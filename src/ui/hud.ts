@@ -5,6 +5,7 @@ import { saveSettings, settings } from '../settings';
 import { store } from '../store';
 import { TOOL_INFO, tools, type Tool } from '../tools';
 import { h } from './dom';
+import { openLeaderboard } from './leaderboard';
 import { openBag, openGems, openMap, openProfile, openQuests, seasonLabel } from './ui';
 
 const WEATHER_ICON = { cerah: '☀️', hujan: '🌧️', badai: '⛈️' };
@@ -87,6 +88,7 @@ export function renderHud() {
           menuBtn('🎒', 'Tas', openBag),
           menuBtn('🗺️', 'Peta', openMap),
           menuBtn('📜', 'Quest', openQuests, questsReady > 0),
+          menuBtn('🏆', 'Peringkat', openLeaderboard),
           menuBtn('👤', 'Profil', openProfile))),
     ),
     h('div', { class: 'hud-bottom' },

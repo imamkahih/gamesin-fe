@@ -47,6 +47,7 @@ export interface PlayerState {
   stats: {
     harvested: number; sold: number; earned: number; watered: number; daysPlayed: number;
     depositDays: number; lastDepositKey: string; crops: Record<string, number>;
+    questsClaimed?: number; // kumulatif (quest direset harian); data lama dimulai dari 0
   };
   achievements: string[];
   edu: Record<string, EduStatus>;
@@ -191,7 +192,7 @@ export function newPlayer(seed: string, golongan: Golongan, gender?: Gender): Pl
     wardrobe: gender === 'P' ? ['kaos_merah', 'rok'] : ['kaos_biru', 'celana_jeans'],
     look: { ...DEFAULT_LOOK[gender ?? 'L'] },
     quests: [], achievements: [], edu: {}, limits: {}, realDay: '', daily: {},
-    stats: { harvested: 0, sold: 0, earned: 0, watered: 0, daysPlayed: 0, depositDays: 0, lastDepositKey: '', crops: {} },
+    stats: { harvested: 0, sold: 0, earned: 0, watered: 0, daysPlayed: 0, depositDays: 0, lastDepositKey: '', crops: {}, questsClaimed: 0 },
   };
   s.quests = genQuests(s);
   return s;
@@ -517,6 +518,7 @@ export function apply(s: PlayerState, a: Action): GameEvent[] {
       if (q!.claimed) fail('Hadiah sudah diambil');
       if (q!.p < q!.n) fail('Quest belum selesai');
       q!.claimed = true; addCashOrBank(s, q!.reward, ev);
+      s.stats.questsClaimed = (s.stats.questsClaimed ?? 0) + 1;
       ev.push({ m: `Quest selesai! +${fmt(q!.reward)}` }); break;
     }
     case 'travel': {
@@ -721,3 +723,18 @@ export function shopAvailable(s: PlayerState, id: string): boolean {
 }
 
 export function netWorth(s: PlayerState) { return s.cash + s.bank; }
+
+/**
+ * Poin papan peringkat (sepanjang waktu). Hanya dari aktivitas bermain:
+ * Permata dan top-up tidak dihitung, `stats.earned` hanya dari penjualan.
+ */
+export const POINTS = { perEarned: 10, harvest: 1, quest: 10, achievement: 25, eduReady: 50, eduPassed: 100 } as const;
+export function points(s: PlayerState): number {
+  const edu = Object.values(s.edu ?? {});
+  return Math.floor((s.stats.earned ?? 0) / POINTS.perEarned)
+    + (s.stats.harvested ?? 0) * POINTS.harvest
+    + (s.stats.questsClaimed ?? 0) * POINTS.quest
+    + (s.achievements?.length ?? 0) * POINTS.achievement
+    + edu.filter((e) => e === 'siap_uji').length * POINTS.eduReady
+    + edu.filter((e) => e === 'disahkan').length * POINTS.eduPassed;
+}

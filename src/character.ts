@@ -54,6 +54,8 @@ function patternTile(it: Item, px: number): HTMLCanvasElement {
 export function drawCharacter(
   ctx: CanvasRenderingContext2D, x: number, y: number, px: number, outfit: Outfit,
   frame: 0 | 1 = 0, facing: Facing = 'down', gender: Gender = 'L', lookIn?: Look,
+  /** 'ride' (hanya tampak samping): kaki tidak digambar, lengan meraih `reach` (koordinat satuan karakter). */
+  pose: 'stand' | 'ride' = 'stand', reach?: [number, number],
 ) {
   const u = (v: number) => v * px;
   const X = (v: number) => x + u(v), Y = (v: number) => y + u(v);
@@ -106,7 +108,7 @@ export function drawCharacter(
     if (st === 'pantofel') { ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(X(lx + 0.8), Y(sy + 0.5), u(0.5), u(0.2), 0, 0, Math.PI * 2); ctx.fill(); }
     if (st === 'flat') { ctx.fillStyle = shade(sc, 0.25); ctx.beginPath(); ctx.arc(X(lx + 1.2), Y(sy + 0.4), u(0.35), 0, Math.PI * 2); ctx.fill(); }
   };
-  for (const [lx, dy] of legs) {
+  if (pose === 'stand') for (const [lx, dy] of legs) {
     if (!longBottom) {
       const legTop = 15.5 + Math.min(0, dy), legH = 3.6 - Math.min(0, dy) + Math.max(0, dy);
       if (botStyle === 'pants') fill(botFill, () => rr(lx, legTop, 2.2, legH, 0.6));
@@ -197,7 +199,20 @@ export function drawCharacter(
     } else fill(topFill, () => rr(ax, 10.8 + dy, 1.8, 4.2, 0.9));
     fill(skin, () => ctx.arc(X(ax + 0.9), Y(15.3 + dy), u(0.85), 0, Math.PI * 2));
   };
-  if (side) arm(4.4, swing);
+  if (side && pose === 'ride' && reach) {
+    // lengan lurus dari bahu ke setang/kemudi: garis tebal berlapis (outline → lengan baju → kulit) + tangan
+    const [sx, sy] = [5.2, 11.3], [rx, ry] = reach;
+    const cut = shortSleeve ? 0.38 : 0.86;
+    const mx = sx + (rx - sx) * cut, my = sy + (ry - sy) * cut;
+    const seg = (c: string | CanvasPattern, w: number, x1: number, y1: number, x2: number, y2: number) => {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(X(x1), Y(y1)); ctx.lineTo(X(x2), Y(y2)); ctx.stroke();
+    };
+    seg(OUT, u(1.7) + LW, sx, sy, rx, ry);
+    seg(skin, u(1.4), sx, sy, rx, ry);
+    seg(topFill, u(1.7), sx, sy, mx, my);
+    resetStroke();
+    fill(skin, () => ctx.arc(X(rx), Y(ry), u(0.85), 0, Math.PI * 2));
+  } else if (side) arm(4.4, swing);
   else { arm(1.4, back ? 0 : swing); arm(8.8, back ? 0 : -swing); }
 
   // ===== 6. aksesori leher/badan =====
@@ -338,30 +353,164 @@ function drawHair(ctx: CanvasRenderingContext2D, style: string, hair: string, fa
   }
 }
 
+export interface Rider { outfit: Outfit; gender?: Gender; look?: Look }
+
+/** Kendaraan tanpa pengendara (ikon/pratinjau). Kotak 30×26 satuan, roda menyentuh y = 25.2. */
 export function drawVehicle(ctx: CanvasRenderingContext2D, x: number, y: number, px: number, id: string, color: string) {
+  drawRide(ctx, x, y, px, id, color, null);
+}
+
+/**
+ * Kendaraan tampak samping (menghadap kanan) + pengendara duduk, dalam kotak 30×26 satuan.
+ * Roda menyentuh y = 25.2 satuan. frame 1 = roda berputar, pedal berganti posisi, bodi sedikit memantul.
+ */
+export function drawRide(
+  ctx: CanvasRenderingContext2D, x: number, y: number, px: number, id: string, color: string,
+  rider: Rider | null, frame: 0 | 1 = 0,
+) {
   if (!VEHICLES[id]) return;
   const u = (v: number) => v * px;
+  const X = (v: number) => x + u(v), Y = (v: number) => y + u(v);
+  const LW = Math.max(1.2, px * 0.45);
+  type P = [number, number];
   ctx.save();
-  ctx.lineJoin = 'round'; ctx.strokeStyle = OUT; ctx.lineWidth = Math.max(1.2, px * 0.45);
-  const wheel = (cx: number, cy: number, r: number) => {
-    ctx.fillStyle = '#2b2b2b'; ctx.beginPath(); ctx.arc(x + u(cx), y + u(cy), u(r), 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#9a9a9a'; ctx.beginPath(); ctx.arc(x + u(cx), y + u(cy), u(r * 0.4), 0, Math.PI * 2); ctx.fill();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  const trace = (pts: P[]) => pts.forEach(([a, b], i) => (i ? ctx.lineTo(X(a), Y(b)) : ctx.moveTo(X(a), Y(b))));
+  /** garis tebal ber-outline (tabung rangka, kaki) */
+  const stroke = (c: string, w: number, pts: P[], outline = true) => {
+    if (outline) { ctx.strokeStyle = OUT; ctx.lineWidth = u(w) + LW; ctx.beginPath(); trace(pts); ctx.stroke(); }
+    ctx.strokeStyle = c; ctx.lineWidth = u(w); ctx.beginPath(); trace(pts); ctx.stroke();
   };
+  const shape = (c: string, path: () => void, line = true) => {
+    ctx.fillStyle = c; ctx.beginPath(); path(); ctx.fill();
+    if (line) { ctx.strokeStyle = OUT; ctx.lineWidth = LW; ctx.stroke(); }
+  };
+  const poly = (pts: P[]) => () => { trace(pts); ctx.closePath(); };
+  const circle = (cx: number, cy: number, r: number) => () => ctx.arc(X(cx), Y(cy), u(r), 0, Math.PI * 2);
+  const rect = (rx: number, ry: number, w: number, h: number, r: number) => () => ctx.roundRect(X(rx), Y(ry), u(w), u(h), u(r));
+  const spin = frame ? Math.PI / 6 : 0;
+  const wheel = ([cx, cy]: P, r: number, spoked = false) => {
+    const rim = r * (spoked ? 0.8 : 0.55);
+    shape('#2b2b2b', circle(cx, cy, r));
+    shape(spoked ? '#f4efe4' : '#cfd3d6', circle(cx, cy, rim), false);
+    ctx.strokeStyle = spoked ? '#9aa0a4' : '#7d8387'; ctx.lineWidth = Math.max(1, u(spoked ? 0.18 : 0.3));
+    const n = spoked ? 8 : 5;
+    for (let k = 0; k < n; k++) {
+      const a = spin + (k / n) * Math.PI * 2;
+      ctx.beginPath(); ctx.moveTo(X(cx), Y(cy)); ctx.lineTo(X(cx + Math.cos(a) * rim), Y(cy + Math.sin(a) * rim)); ctx.stroke();
+    }
+    shape('#5b6064', circle(cx, cy, r * 0.18), false);
+  };
+
+  // ----- pengendara: warna kaki dari pakaian -----
+  const look = rider ? { ...DEFAULT_LOOK[rider.gender ?? 'L'], ...rider.look } : null;
+  const skin = (look && SKIN_TONES.find((t) => t.id === look.skin)?.color) ?? '#f1c29a';
+  const item = (slot: Slot) => (rider?.outfit[slot] ? ITEMS[rider.outfit[slot]!] : undefined);
+  const top = item('top'), bottom = item('bottom'), shoes = item('shoes');
+  const bStyle = top?.style === 'gamis' ? 'gamis' : bottom?.style ?? 'pants';
+  const thighC = bStyle === 'gamis' ? top?.color ?? '#f0f0f0' : bottom?.color ?? '#4a5a7a';
+  const shinC = ['pants', 'longskirt', 'sarung', 'gamis'].includes(bStyle) ? thighC : skin;
+  const shoeC = shoes?.color ?? '#3a2a1a';
+  /** kaki dua ruas pinggul → lutut → telapak (IK sederhana); lutut selalu ke depan. */
+  const leg = (hip: P, target: P, l1: number, l2: number, far: boolean) => {
+    if (!rider) return;
+    const dx = target[0] - hip[0], dy = target[1] - hip[1];
+    const d = Math.min(Math.hypot(dx, dy), l1 + l2 - 0.01);
+    const a = Math.atan2(dy, dx);
+    const b = Math.acos(Math.max(-1, Math.min(1, (l1 * l1 + d * d - l2 * l2) / (2 * l1 * d))));
+    const k1: P = [hip[0] + l1 * Math.cos(a - b), hip[1] + l1 * Math.sin(a - b)];
+    const k2: P = [hip[0] + l1 * Math.cos(a + b), hip[1] + l1 * Math.sin(a + b)];
+    const knee = k1[0] > k2[0] ? k1 : k2;
+    const foot: P = [hip[0] + Math.cos(a) * d, hip[1] + Math.sin(a) * d];
+    const tint = (c: string) => (far ? shade(c, -0.18) : c);
+    stroke(tint(shinC), 1.5, [knee, foot]);
+    stroke(tint(thighC), 1.8, [hip, knee]);
+    shape(tint(shoeC), rect(foot[0] - 0.7, foot[1] - 0.7, 2.4, 1.3, 0.6));
+  };
+  /** badan atas pengendara; pinggang (5.8, 15.1 satuan karakter) diletakkan di `hip` */
+  const torso = (hip: P, grip: P) => {
+    if (!rider) return;
+    const ox = hip[0] - 5.8, oy = hip[1] - 15.1;
+    drawCharacter(ctx, X(ox), Y(oy), px, rider.outfit, 0, 'side', rider.gender ?? 'L', rider.look, 'ride', [grip[0] - ox, grip[1] - oy]);
+  };
+  const bob = frame ? 0.3 : 0;
+
   if (id === 'sepeda') {
-    ctx.strokeStyle = '#2b2b2b'; ctx.lineWidth = u(0.6);
-    for (const cx of [3, 13]) { ctx.beginPath(); ctx.arc(x + u(cx), y + u(8), u(3), 0, Math.PI * 2); ctx.stroke(); }
-    ctx.strokeStyle = color; ctx.lineWidth = u(0.9);
-    ctx.beginPath(); ctx.moveTo(x + u(3), y + u(8)); ctx.lineTo(x + u(7), y + u(4)); ctx.lineTo(x + u(12), y + u(4)); ctx.lineTo(x + u(13), y + u(8)); ctx.moveTo(x + u(7), y + u(4)); ctx.lineTo(x + u(8), y + u(8)); ctx.lineTo(x + u(12), y + u(4)); ctx.moveTo(x + u(12), y + u(4)); ctx.lineTo(x + u(12), y + u(2)); ctx.stroke();
-    ctx.fillStyle = '#b07a44'; ctx.strokeStyle = OUT; ctx.lineWidth = Math.max(1.2, px * 0.45);
-    ctx.beginPath(); ctx.roundRect(x + u(11), y + u(4.5), u(5), u(2.6), u(0.6)); ctx.fill(); ctx.stroke();
+    const R: P = [8.5, 21.8], F: P = [21.5, 21.8], B: P = [14, 21.4], S: P = [12, 15.4], T: P = [19.4, 15.4];
+    const ca = frame ? Math.PI * 0.3 : Math.PI * 1.05;
+    const pedal = (sgn: number): P => [B[0] + sgn * 1.5 * Math.cos(ca), B[1] + sgn * 1.5 * Math.sin(ca)];
+    const hip: P = [12.4, 15 + bob * 0.5];
+    leg(hip, pedal(-1), 4, 4.2, true);
+    wheel(R, 3.4, true); wheel(F, 3.4, true);
+    stroke('#3a3a3a', 0.35, [B, pedal(-1)], false);
+    stroke(shade(color, -0.2), 0.7, [T, F]); // garpu
+    stroke(color, 0.8, [R, B, S, R]);
+    stroke(color, 0.9, [S, T, B]);
+    shape('#c9c9c9', circle(B[0], B[1], 1));
+    stroke('#3a3a3a', 0.6, [T, [19, 13.7], [16.6, 14]]); // stang
+    shape('#3b2a1a', rect(10.6, 14.6, 3.2, 1, 0.5)); // sadel
+    torso(hip, [16.6, 14]);
+    leg([hip[0] + 0.2, hip[1] + 0.2], pedal(1), 4, 4.2, false);
+    stroke('#3a3a3a', 0.35, [B, pedal(1)], false);
+    shape('#6b6b6b', rect(pedal(1)[0] - 0.8, pedal(1)[1] - 0.25, 1.6, 0.5, 0.2));
+    // keranjang depan
+    shape('#c99a5b', poly([[19.6, 14.6], [23.8, 14.6], [23.2, 17.4], [20.2, 17.4]]));
+    ctx.strokeStyle = '#a0763f'; ctx.lineWidth = Math.max(1, u(0.18)); ctx.beginPath();
+    for (const k of [20.8, 21.7, 22.6]) { ctx.moveTo(X(k), Y(14.9)); ctx.lineTo(X(k - 0.2), Y(17.1)); }
+    ctx.moveTo(X(19.9), Y(16)); ctx.lineTo(X(23.5), Y(16)); ctx.stroke();
+  } else if (id === 'motor') {
+    const R: P = [8.6, 22.4], F: P = [22.4, 22.4];
+    const hip: P = [14.4, 16.6 + bob];
+    leg([hip[0] - 0.4, hip[1]], [16.2, 20.8 + bob], 3, 3.2, true);
+    // bak belakang
+    shape(shade(color, -0.12), rect(1.8, 15.2 + bob, 9, 4.6, 0.6));
+    ctx.strokeStyle = shade(color, -0.32); ctx.lineWidth = Math.max(1, u(0.25)); ctx.beginPath();
+    for (const k of [4, 6.2, 8.4]) { ctx.moveTo(X(k), Y(15.7 + bob)); ctx.lineTo(X(k), Y(19.3 + bob)); }
+    ctx.stroke();
+    shape(shade(color, 0.15), rect(1.5, 14.7 + bob, 9.6, 1, 0.4));
+    wheel(R, 2.8); wheel(F, 2.8);
+    stroke('#6b6b6b', 0.6, [[20.2, 15.4 + bob], F]); // garpu
+    shape('#3b3f44', rect(11.4, 20 + bob, 5.6, 2, 0.6)); // mesin
+    stroke('#9aa0a4', 0.5, [[12, 21.6 + bob], [6.4, 21.8 + bob]]); // knalpot
+    shape(color, rect(10.2, 17.4 + bob, 8.6, 3.2, 1.4));
+    shape('#2b2416', rect(10.4, 16.2 + bob, 6.4, 1.4, 0.7)); // jok
+    shape(color, poly([[17.6, 21 + bob], [17.8, 16.2 + bob], [20, 14.6 + bob], [21.4, 15.2 + bob], [20.6, 21 + bob]])); // tameng depan
+    shape('#ffe27a', circle(21, 16.4 + bob, 0.7)); // lampu
+    shape(shade(color, -0.1), () => { ctx.arc(X(F[0]), Y(F[1]), u(3.4), Math.PI * 1.08, Math.PI * 1.75); ctx.lineTo(X(F[0] + 1.6), Y(F[1] - 2.5)); ctx.closePath(); }); // spakbor
+    stroke('#3a3a3a', 0.6, [[20, 14.6 + bob], [19.8, 13.2 + bob], [18.2, 13.4 + bob]]); // stang
+    torso(hip, [18.2, 13.4 + bob]);
+    leg([hip[0], hip[1] + 0.2], [16.6, 20.6 + bob], 3, 3.2, false);
+    shape('#6b6b6b', rect(15.8, 20.9 + bob, 1.8, 0.5, 0.2), false); // pijakan
   } else {
-    const w = id === 'pikap' ? 24 : 18;
-    ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(x, y + u(2), u(w), u(6), u(1.5)); ctx.fill(); ctx.stroke();
-    const cabX = id === 'pikap' ? 15 : 11, cabW = id === 'pikap' ? 8 : 6;
-    ctx.beginPath(); ctx.roundRect(x + u(cabX), y - u(2), u(cabW), u(5), u(1.4)); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#cfeaff'; ctx.beginPath(); ctx.roundRect(x + u(cabX + 1.5), y - u(1), u(cabW - 3), u(2.4), u(0.6)); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.fillRect(x + u(1), y + u(3), u(w - 2), u(1));
-    wheel(4, 9, 2.4); wheel(w - 4, 9, 2.4);
+    // pikap: pengemudi terlihat lewat jendela kabin
+    const R: P = [8.2, 22], F: P = [23, 22];
+    const win: P[] = [[15.4, 7.6 + bob], [19.7, 7.6 + bob], [22.9, 12.6 + bob], [15.4, 12.6 + bob]];
+    ctx.save(); ctx.beginPath(); poly(win)(); ctx.clip();
+    shape('#3b4a5a', poly(win), false); // bagian dalam kabin
+    torso([16.3, 17.9 + bob], [21, 11.8 + bob]);
+    shape('#2b2b2b', () => ctx.ellipse(X(21), Y(11.4 + bob), u(0.5), u(1.6), -0.35, 0, Math.PI * 2), false); // setir
+    ctx.restore();
+    shape('rgba(205, 238, 255, 0.28)', poly(win), false);
+    ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.beginPath(); poly([[19.6, 12.6 + bob], [21.2, 9.4 + bob], [21.8, 10.3 + bob], [20.4, 12.6 + bob]])(); ctx.fill();
+    // bodi + kabin dengan lubang jendela (evenodd)
+    ctx.fillStyle = color; ctx.beginPath();
+    ctx.moveTo(X(1.6), Y(15.4 + bob)); ctx.lineTo(X(14.4), Y(15.4 + bob)); ctx.lineTo(X(14.4), Y(7.4 + bob));
+    ctx.quadraticCurveTo(X(14.4), Y(6.6 + bob), X(15.2), Y(6.6 + bob)); ctx.lineTo(X(19.8), Y(6.6 + bob));
+    ctx.lineTo(X(23.6), Y(12.6 + bob)); ctx.lineTo(X(27.4), Y(13.4 + bob)); ctx.quadraticCurveTo(X(28.6), Y(13.7 + bob), X(28.6), Y(15 + bob));
+    ctx.lineTo(X(28.6), Y(20.6 + bob)); ctx.lineTo(X(1.6), Y(20.6 + bob)); ctx.closePath();
+    poly(win)();
+    ctx.fill('evenodd'); ctx.strokeStyle = OUT; ctx.lineWidth = LW; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fillRect(X(2.2), Y(16 + bob), u(25.6), u(0.8));
+    ctx.fillStyle = shade(color, -0.22); ctx.fillRect(X(2.2), Y(15.4 + bob), u(12), u(0.6)); // bibir bak
+    ctx.strokeStyle = shade(color, -0.3); ctx.lineWidth = Math.max(1, u(0.2)); ctx.beginPath();
+    ctx.moveTo(X(14.4), Y(15.4 + bob)); ctx.lineTo(X(14.4), Y(20.4 + bob)); ctx.moveTo(X(22.4), Y(13 + bob)); ctx.lineTo(X(22.4), Y(20.4 + bob)); ctx.stroke();
+    shape('#d9d9d9', rect(16.2, 14 + bob, 1.6, 0.5, 0.25), false); // gagang pintu
+    shape('#ffe27a', rect(27.6, 14 + bob, 1, 1.4, 0.4)); // lampu depan
+    shape('#e0453a', rect(1.2, 16.2 + bob, 0.8, 1.6, 0.3)); // lampu belakang
+    shape('#4a4f55', rect(27.4, 19.6 + bob, 1.8, 1.2, 0.4)); // bemper
+    shape('#4a4f55', rect(0.8, 19.6 + bob, 1.8, 1.2, 0.4));
+    for (const w of [R, F]) shape('#2b2416', () => { ctx.arc(X(w[0]), Y(w[1]), u(3.7), Math.PI, 0); ctx.closePath(); }, false);
+    wheel(R, 3.2); wheel(F, 3.2);
   }
   ctx.restore();
 }

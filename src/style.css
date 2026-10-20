@@ -74,7 +74,29 @@ progress { width: 100%; height: 8px; accent-color: var(--good); }
 .npc p { margin: 0; font-size: 0.9rem; }
 .quiz { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 4px 10px 10px; margin-top: 10px; }
 .preview { image-rendering: pixelated; background: #d7f0c2; border-radius: 8px; }
-.share-preview { width: 100%; max-width: 320px; border-radius: 12px; box-shadow: 0 2px 8px #0003; }
+.share-preview { display: block; width: 100%; height: auto; border-radius: 16px; box-shadow: 0 6px 18px #0002, 0 0 0 3px #3b2a1a; }
+.share-sheet { display: flex; flex-direction: column; align-items: stretch; gap: 12px; max-width: 420px; margin: 0 auto; }
+.share-stage { align-self: center; width: min(100%, 340px); padding: 14px; border-radius: 22px; background: radial-gradient(circle at 50% 30%, #fff8e7, #f3e2bf); transition: width 0.2s; }
+.share-stage.story { width: min(62%, 230px); }
+.share-fmts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.share-fmt { display: flex; align-items: center; gap: 8px; padding: 8px 12px; min-height: 48px; border-radius: 14px; border: 2px solid var(--line); background: #fff; color: var(--ink); cursor: pointer; }
+.share-fmt small { margin-left: auto; }
+.share-fmt.on { border-color: var(--primary); background: #fff3e2; box-shadow: 0 2px 0 #a85a1a; }
+.share-fmt-ico { width: 18px; height: 18px; border: 2px solid currentColor; border-radius: 4px; opacity: 0.7; }
+.share-fmt-ico.tall { width: 12px; height: 20px; }
+.share-main { margin-top: 0; font-size: 1.05rem; }
+.share-or { display: flex; align-items: center; gap: 10px; margin: 2px 0; color: var(--muted); font-size: 0.8rem; }
+.share-or::before, .share-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.share-targets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.share-target { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; align-self: start; gap: 4px; margin: 0; padding: 6px 2px; border: 0; background: none; color: var(--ink); font: inherit; line-height: 1.2; text-decoration: none; cursor: pointer; border-radius: 12px; }
+.share-target:hover, .share-target:focus-visible { background: #f3e9d2; }
+.share-target small { color: var(--ink); font-size: 0.72rem; white-space: nowrap; }
+.share-ico { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 50%; font-size: 1.35rem; font-weight: 700; color: #fff; box-shadow: 0 3px 0 #0002; }
+.share-ico.wa { background: #25d366; }
+.share-ico.fb { background: #1877f2; font-family: Georgia, serif; font-size: 1.6rem; }
+.share-ico.x { background: #111; }
+.share-ico.copy { background: #8a5a2e; }
+.share-ico.dl { background: var(--primary); }
 .qr { background: #fff; padding: 8px; border-radius: 8px; }
 .lbl { width: 70px; }
 

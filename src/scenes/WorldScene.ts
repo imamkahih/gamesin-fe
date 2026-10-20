@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { createPondTexture, createWorldTextures, cropStage, BUILDING_PAD, makeTexture } from '../art';
-import { drawCharacter, drawVehicle } from '../character';
+import { drawCharacter, drawRide } from '../character';
 import { controls } from '../controls';
 import { CROPS, ITEMS, LOCATIONS, type LocationId } from '../engine/config';
 import { count, farmSize, speed, type Action, type Plot } from '../engine/engine';
@@ -35,6 +35,7 @@ export class WorldScene extends Phaser.Scene {
   private cursor!: Phaser.GameObjects.Rectangle;
   private prompt!: Phaser.GameObjects.Text;
   private night!: Phaser.GameObjects.Rectangle;
+  private rideLeft = false;
   private fence!: Phaser.GameObjects.Graphics;
   private rain?: Phaser.GameObjects.Particles.ParticleEmitter;
   private near: Target | null = null;
@@ -58,7 +59,7 @@ export class WorldScene extends Phaser.Scene {
       fontFamily: 'Fredoka, system-ui, sans-serif', fontSize: '16px', fontStyle: 'bold', color: '#3b2a1a', backgroundColor: '#fff8e7', padding: { x: 12, y: 7 },
     }).setOrigin(0.5, 1).setDepth(5000).setVisible(false).setInteractive({ useHandCursor: true });
     this.prompt.on('pointerdown', (_p: unknown, _x: number, _y: number, e: Phaser.Types.Input.EventData) => { e.stopPropagation(); this.interact(); });
-    this.night = this.add.rectangle(0, 0, 10, 10, 0x0a1440, 0).setOrigin(0).setScrollFactor(0).setDepth(6000);
+    this.night = this.add.rectangle(0, 0, 10, 10, 0x0a1440, 0).setScrollFactor(0).setDepth(6000);
 
     const g = this.make.graphics({}, false);
     g.fillStyle(0xbfe3ff, 0.8).fillRect(0, 0, 2, 10).generateTexture('drop', 2, 10);
@@ -84,7 +85,9 @@ export class WorldScene extends Phaser.Scene {
     const { width, height } = this.scale;
     const short = Math.min(width, height);
     this.cameras.main.setZoom(short < 420 ? 0.75 : short < 700 ? 0.9 : 1.1);
-    this.night?.setSize(width, height);
+    // Objek scrollFactor 0 tetap ikut zoom kamera (berpusat di tengah layar): ukuran dibagi zoom agar selalu menutup penuh.
+    const z = this.cameras.main.zoom;
+    this.night?.setPosition(width / 2, height / 2).setSize((width / z) * 1.05, (height / z) * 1.05);
   }
 
   // ---------- gambar dunia statis ----------
@@ -270,17 +273,21 @@ export class WorldScene extends Phaser.Scene {
     if (key === this.outfitKey) return;
     this.outfitKey = key;
     const px = 3.4;
-    for (const dir of ['down', 'up', 'side'] as const) for (const f of [0, 1] as const) {
-      makeTexture(this, `char-${dir}-${f}`, Math.ceil(30 * px), Math.ceil(26 * px), (ctx) => {
-        if (s.vehicle) drawVehicle(ctx, 2 * px, 14 * px, px, s.vehicle, s.vehicles[s.vehicle].color);
-        drawCharacter(ctx, 9 * px, 2 * px, px, s.outfit, f, dir, s.gender, s.look);
-      });
+    for (const f of [0, 1] as const) {
+      if (s.vehicle) {
+        // berkendara: selalu tampak samping, pengendara duduk (roda/pedal berganti tiap frame)
+        const rider = { outfit: s.outfit, gender: s.gender, look: s.look };
+        makeTexture(this, `ride-${f}`, Math.ceil(30 * px), Math.ceil(26 * px), (ctx) => drawRide(ctx, 0, 0, px, s.vehicle!, s.vehicles[s.vehicle!].color, rider, f));
+      } else for (const dir of ['down', 'up', 'side'] as const) {
+        makeTexture(this, `char-${dir}-${f}`, Math.ceil(30 * px), Math.ceil(26 * px), (ctx) => drawCharacter(ctx, 9 * px, 2 * px, px, s.outfit, f, dir, s.gender, s.look));
+      }
     }
     // titik pijak = telapak kaki (tanpa kendaraan) atau roda (dengan kendaraan); kanvas 26 satuan tinggi
     this.player.setTexture(this.charKey()).setOrigin(0.5, s.vehicle ? 25.2 / 26 : 22.3 / 26);
   }
 
   private charKey() {
+    if (store.state?.vehicle) return `ride-${this.frame}`;
     const dir = this.facing === 'left' || this.facing === 'right' ? 'side' : this.facing;
     return `char-${dir}-${this.frame}`;
   }
@@ -325,8 +332,11 @@ export class WorldScene extends Phaser.Scene {
 
   private setWeather(on: boolean) {
     if (on && !this.rain) {
+      // scrollFactor 0 + zoom kamera: lebarkan area tetes & mulai di atas tepi layar agar hujan menutup penuh
+      const { width, height } = this.scale, z = this.cameras.main.zoom;
+      const x0 = width / 2 - width / (2 * z), x1 = width / 2 + width / (2 * z);
       this.rain = this.add.particles(0, 0, 'drop', {
-        x: { min: 0, max: this.scale.width }, y: -10, lifespan: 1200, speedY: { min: 400, max: 600 }, speedX: -60, quantity: 2, frequency: 40,
+        x: { min: x0 - 60, max: x1 + 60 }, y: height / 2 - height / (2 * z) - 10, lifespan: 1700, speedY: { min: 400, max: 600 }, speedX: -60, quantity: 2, frequency: 40,
       }).setScrollFactor(0).setDepth(5500);
     } else if (!on && this.rain) { this.rain.destroy(); this.rain = undefined; }
   }
@@ -365,17 +375,18 @@ export class WorldScene extends Phaser.Scene {
       if (!collides(p.x, p.y + vy)) p.y += vy;
       if (Math.abs(dx) > Math.abs(dy)) this.facing = dx > 0 ? 'right' : 'left';
       else this.facing = dy > 0 ? 'down' : 'up';
+      if (Math.abs(dx) > 0.2) this.rideLeft = dx < 0; // kendaraan tampak samping: ikuti arah horizontal terakhir
       this.stuck = Math.hypot(p.x - ox, p.y - oy) < 0.2 ? this.stuck + 1 : 0;
       if (this.stuck > 12 && this.route.length) { this.route = []; this.pending = null; this.stuck = 0; }
       this.walkT += dt;
-      if (this.walkT > 0.14) { this.walkT = 0; this.frame = this.frame ? 0 : 1; this.player.setTexture(this.charKey()); }
+      if (this.walkT > (store.state.vehicle ? 0.1 : 0.14)) { this.walkT = 0; this.frame = this.frame ? 0 : 1; this.player.setTexture(this.charKey()); }
     } else if (this.frame) { this.frame = 0; this.player.setTexture(this.charKey()); }
 
     controls.setInFarm(inFarmZone(p.x, p.y));
     // masuk zona ladang = lokasi "farm" di server
     if (!paused && inFarmZone(p.x, p.y) && store.state.location !== 'farm' && !this.traveling) this.travel('farm');
 
-    this.player.setPosition(Math.round(p.x), Math.round(p.y + 3)).setDepth(p.y).setFlipX(this.facing === 'left').setTexture(this.charKey());
+    this.player.setPosition(Math.round(p.x), Math.round(p.y + 3)).setDepth(p.y).setFlipX(store.state.vehicle ? this.rideLeft : this.facing === 'left').setTexture(this.charKey());
     this.shadow.setPosition(p.x, p.y + 4).setDepth(p.y - 1);
     this.cameras.main.centerOn(p.x, p.y - 20);
 
